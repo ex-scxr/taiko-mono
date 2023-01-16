@@ -1,6 +1,8 @@
+import * as childProcess from "child_process";
 import * as ethers from "ethers";
 import { task } from "hardhat/config";
 import * as types from "hardhat/internal/core/params/argumentTypes";
+import * as path from "path";
 import * as config from "./config";
 import * as log from "./log";
 import * as utils from "./utils";
@@ -83,6 +85,7 @@ export async function deployContracts(hre: any) {
     await utils.waitTx(hre, await AddressManager.init());
 
     const ProofVerifier = await utils.deployContract(hre, "ProofVerifier");
+    await utils.waitTx(hre, await ProofVerifier.init(AddressManager.address));
     await utils.waitTx(
         hre,
         await AddressManager.setAddress(
@@ -184,6 +187,18 @@ export async function deployContracts(hre: any) {
         );
     }
 
+    // PlonkVerifier
+    const PlonkVerifier = await deployPlonkVerifier(hre);
+
+    // Used by ProofVerifier
+    await utils.waitTx(
+        hre,
+        await AddressManager.setAddress(
+            `${chainId}.plonk_verifier`,
+            PlonkVerifier.address
+        )
+    );
+
     // save deployments
     const deployments = {
         network,
@@ -257,4 +272,43 @@ async function deployTokenVault(
     await utils.waitTx(hre, await TokenVault.init(addressManager));
 
     return TokenVault;
+}
+
+async function deployPlonkVerifier(hre: any): Promise<any> {
+    const SOLC_COMMAND = path.join(__dirname, "../bin/solc");
+    const sourceFile = path.join(
+        __dirname,
+        "../contracts/libs/yul/PlonkVerifier.yulp"
+    );
+    const compile = childProcess.spawnSync(SOLC_COMMAND, [
+        "--yul",
+        "--bin",
+        sourceFile,
+    ]);
+
+    let isNextLineByteCode = false;
+    let byteCode = null;
+    for (const line of compile.stdout.toString().split("\n")) {
+        if (isNextLineByteCode) {
+            byteCode = line;
+            break;
+        }
+
+        if (line === "Binary representation:") {
+            isNextLineByteCode = true;
+        }
+    }
+
+    const [signer] = await hre.ethers.getSigners();
+
+    const tx = await signer.sendTransaction({ data: "0x" + byteCode });
+    const receipt = await tx.wait();
+
+    if (receipt.status !== 1) {
+        throw new Error(
+            `failed to create PlonkVerifier contract, transaction ${tx.hash} reverted`
+        );
+    }
+
+    return { address: receipt.contractAddress };
 }

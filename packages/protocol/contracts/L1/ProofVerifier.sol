@@ -10,6 +10,7 @@ pragma solidity ^0.8.9;
 
 import "../thirdparty/LibMerkleTrie.sol";
 import "../libs/LibZKP.sol";
+import "../common/EssentialContract.sol";
 
 /// @author dantaik <dan@taiko.xyz>
 interface IProofVerifier {
@@ -19,7 +20,7 @@ interface IProofVerifier {
         bytes32 blockHash,
         address prover,
         bytes32 txListHash
-    ) external pure returns (bool verified);
+    ) external view returns (bool verified);
 
     function verifyMKP(
         bytes memory key,
@@ -29,16 +30,21 @@ interface IProofVerifier {
     ) external pure returns (bool verified);
 }
 
-contract ProofVerifier is IProofVerifier {
+contract ProofVerifier is IProofVerifier, EssentialContract {
+    function init(address addressManager) external initializer {
+        EssentialContract._init(addressManager);
+    }
+
     function verifyZKP(
         bytes memory verificationKey,
         bytes calldata zkproof,
         bytes32 blockHash,
         address prover,
         bytes32 txListHash
-    ) external pure returns (bool) {
+    ) external view returns (bool) {
         return
             LibZKP.verify({
+                plonkVerifier: resolve("plonk_verifier"),
                 verificationKey: verificationKey,
                 zkproof: zkproof,
                 blockHash: blockHash,
